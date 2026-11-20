@@ -96,7 +96,7 @@ public class PortfolioService {
                     "Transaction currency must match the listed instrument currency");
         }
         Instant now = clock.instant();
-        PortfolioHoldingEntity holding = holdings.findByPortfolioIdAndCompanyId(portfolioId, company.getId()).orElse(null);
+        PortfolioHoldingEntity holding = holdings.findByPortfolioIdAndCompanyIdForUpdate(portfolioId, company.getId()).orElse(null);
         BigDecimal realized = BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP);
         if (request.type().equals("BUY")) {
             BigDecimal cost = request.quantity().multiply(request.unitPrice()).add(request.fees()).setScale(4, RoundingMode.HALF_UP);
@@ -148,9 +148,13 @@ public class PortfolioService {
         BigDecimal currentPrice = quote == null ? null : quote.getPrice();
         BigDecimal marketValue = currentPrice == null ? null : currentPrice.multiply(holding.getQuantity()).setScale(4, RoundingMode.HALF_UP);
         BigDecimal unrealized = marketValue == null ? null : marketValue.subtract(holding.getCostBasis()).setScale(4, RoundingMode.HALF_UP);
+        BigDecimal unrealizedPercent = unrealized == null || holding.getCostBasis().signum() == 0 ? null
+                : unrealized.divide(holding.getCostBasis(), 8, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100)).setScale(4, RoundingMode.HALF_UP);
         return new HoldingResponse(company.getId(), company.getExchangeCode(), company.getSymbol(),
-                company.getCompanyName(), holding.getQuantity(), holding.getAverageCost(), holding.getCostBasis(),
-                currentPrice, marketValue, unrealized, quote == null ? "UNAVAILABLE" : quote.getStatus().name(),
+                company.getCompanyName(), company.getCurrency(), holding.getQuantity(), holding.getAverageCost(), holding.getCostBasis(),
+                currentPrice, marketValue, unrealized, unrealizedPercent,
+                quote == null ? "UNAVAILABLE" : quote.getStatus().name(),
                 quote == null ? null : quote.getObservedAt());
     }
 

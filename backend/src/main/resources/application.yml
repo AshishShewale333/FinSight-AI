@@ -26,6 +26,14 @@ spring:
     clean-disabled: true
   jackson:
     time-zone: UTC
+  mail:
+    host: ${SMTP_HOST:smtp.gmail.com}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${GMAIL_APP_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${SMTP_AUTH:true}
+      mail.smtp.starttls.enable: ${SMTP_STARTTLS:true}
   cache:
     type: redis
     redis:
@@ -105,9 +113,44 @@ finsight:
     refresh-token-ttl: ${JWT_REFRESH_TTL:P30D}
   market-data:
     provider: ${MARKET_DATA_PROVIDER:unavailable}
+    mock:
+      update-interval: ${MOCK_STOCK_UPDATE_INTERVAL:1000}
+      minimum-fluctuation-percent: ${MOCK_STOCK_MIN_CHANGE_PERCENT:-2}
+      maximum-fluctuation-percent: ${MOCK_STOCK_MAX_CHANGE_PERCENT:2}
+      history-limit: ${MOCK_STOCK_HISTORY_LIMIT:300}
+      stocks:
+        - symbol: RELIANCE
+          initial-price: 1450
+          currency: INR
+        - symbol: TCS
+          initial-price: 3800
+          currency: INR
+        - symbol: INFY
+          initial-price: 1600
+          currency: INR
+        - symbol: HDFCBANK
+          initial-price: 1700
+          currency: INR
+        - symbol: ICICIBANK
+          initial-price: 1200
+          currency: INR
+        - symbol: SBIN
+          initial-price: 800
+          currency: INR
+        - symbol: WIPRO
+          initial-price: 500
+          currency: INR
+        - symbol: TATAMOTORS
+          initial-price: 700
+          currency: INR
+  notifications:
+    email:
+      enabled: ${EMAIL_NOTIFICATIONS_ENABLED:true}
+      from: ${EMAIL_FROM:${SMTP_USERNAME:ashishshewale0306@gmail.com}}
+      recipient: ${EMAIL_ALERT_RECIPIENT:ashishshewale0306@gmail.com}
   news:
-    provider: ${FINANCIAL_NEWS_PROVIDER:mock}
-    sync-enabled: ${FINANCIAL_NEWS_SYNC_ENABLED:false}
+    provider: ${FINANCIAL_NEWS_PROVIDER:gdelt-rss}
+    sync-enabled: ${FINANCIAL_NEWS_SYNC_ENABLED:true}
     auto-summarize: ${FINANCIAL_NEWS_AUTO_SUMMARIZE:false}
   stock-explorer:
     import-enabled: ${STOCK_EXPLORER_IMPORT_ENABLED:true}

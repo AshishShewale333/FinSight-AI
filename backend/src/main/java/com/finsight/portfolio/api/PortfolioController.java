@@ -3,7 +3,6 @@ package com.finsight.portfolio.api;
 import com.finsight.common.api.ApiResponse;
 import com.finsight.common.config.CorrelationIdFilter;
 import com.finsight.portfolio.application.PortfolioService;
-import com.finsight.transaction.api.CreateTransactionRequest;
 import com.finsight.transaction.api.TransactionResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -62,14 +61,6 @@ public class PortfolioController {
     public ApiResponse<List<HoldingResponse>> holdings(@AuthenticationPrincipal Jwt jwt,
             @PathVariable String portfolioId, HttpServletRequest request) {
         return ApiResponse.success("Holdings retrieved", portfolioService.holdings(jwt.getSubject(), portfolioId), cid(request));
-    }
-
-    @PostMapping("/{portfolioId}/transactions")
-    public ApiResponse<TransactionResponse> addTransaction(@AuthenticationPrincipal Jwt jwt,
-            @PathVariable String portfolioId, @Valid @RequestBody CreateTransactionRequest body,
-            @RequestHeader(value="Idempotency-Key", required=false) String key, HttpServletRequest request) {
-        return ApiResponse.success("Transaction recorded",
-                portfolioService.addTransaction(jwt.getSubject(), portfolioId, body, key), cid(request));
     }
 
     @GetMapping("/{portfolioId}/transactions")

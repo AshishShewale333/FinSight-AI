@@ -8,6 +8,7 @@ public record PortfolioAnalyticsResponse(
         BigDecimal currentPortfolioValue,
         BigDecimal realizedProfitLoss,
         BigDecimal unrealizedProfitLoss,
+        BigDecimal unrealizedProfitLossPercentage,
         BigDecimal absoluteReturns,
         BigDecimal percentageReturns,
         Double xirr,

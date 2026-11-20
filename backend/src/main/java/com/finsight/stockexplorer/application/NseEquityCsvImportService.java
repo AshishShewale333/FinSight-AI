@@ -49,7 +49,9 @@ public class NseEquityCsvImportService {
     }
 
     public boolean alreadyImportedToday(LocalDate today) {
-        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM stock_explorer_import_state WHERE source_key = ? AND last_import_date = ?",
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM stock_explorer_import_state " +
+                        "WHERE source_key = ? AND last_import_date = ? " +
+                        "AND EXISTS (SELECT 1 FROM stock_explorer_listings WHERE active = TRUE)",
                 Integer.class, SOURCE_KEY, today);
         return count != null && count > 0;
     }

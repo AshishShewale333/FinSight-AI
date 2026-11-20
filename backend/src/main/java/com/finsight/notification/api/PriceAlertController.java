@@ -44,5 +44,10 @@ public class PriceAlertController {
         service.deleteAlert(jwt.getSubject(), alertId);
         return ApiResponse.success("Price alert deleted", null, cid(request));
     }
+    @PostMapping("/{alertId}/reactivate")
+    public ApiResponse<PriceAlertResponse> reactivate(@AuthenticationPrincipal Jwt jwt,
+            @PathVariable String alertId, HttpServletRequest request) {
+        return ApiResponse.success("Price alert reactivated", service.reactivateAlert(jwt.getSubject(), alertId), cid(request));
+    }
     private String cid(HttpServletRequest request) { return request.getHeader(CorrelationIdFilter.HEADER_NAME); }
 }

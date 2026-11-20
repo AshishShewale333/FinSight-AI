@@ -12,6 +12,8 @@ import com.finsight.user.persistence.RoleRepository;
 import com.finsight.user.persistence.UserEntity;
 import com.finsight.user.persistence.UserRepository;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -32,6 +34,7 @@ import java.util.UUID;
 @Service
 public class AuthenticationService {
 
+    private static final Logger log = LoggerFactory.getLogger(AuthenticationService.class);
     private static final String USER_ROLE = "USER";
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
@@ -75,6 +78,7 @@ public class AuthenticationService {
         } catch (DataIntegrityViolationException exception) {
             throw new ApiException(HttpStatus.CONFLICT, "EMAIL_ALREADY_REGISTERED", "An account already exists for this email");
         }
+        log.info("Account registration completed");
         return issueTokenPair(user, now);
     }
 
@@ -83,14 +87,17 @@ public class AuthenticationService {
         String email = normalizeEmail(request.email());
         if (!isPasswordWithinBcryptLimit(request.password())) {
             passwordEncoder.matches("invalid", dummyPasswordHash);
+            log.debug("Login rejected reason=invalid_credentials");
             throw invalidCredentials();
         }
         UserEntity user = userRepository.findByEmail(email).orElse(null);
         String hash = user == null ? dummyPasswordHash : user.getPasswordHash();
         boolean passwordMatches = passwordEncoder.matches(request.password(), hash);
         if (user == null || !user.isEnabled() || !passwordMatches) {
+            log.debug("Login rejected reason=invalid_credentials");
             throw invalidCredentials();
         }
+        log.info("User login succeeded");
         return issueTokenPair(user, clock.instant());
     }
 
@@ -113,6 +120,7 @@ public class AuthenticationService {
         refreshTokenRepository.save(current);
         refreshTokenRepository.save(new RefreshTokenEntity(UUID.randomUUID().toString(), user,
                 replacementHash, now.plus(securityProperties.refreshTokenTtl()), now));
+        log.debug("Refresh token rotated");
         return new TokenResponse("Bearer", accessTokenService.issue(user.getId(), roleNames(user)),
                 replacement, accessTokenService.expiresInSeconds(), now);
     }

@@ -30,6 +30,7 @@ public class PriceAlertEntity {
     @Column(nullable=false, length=3) private String currency;
     @Column(nullable=false) private boolean enabled;
     @Column(name="last_triggered_at") private Instant lastTriggeredAt;
+    @Column(name="trigger_count", nullable=false) private int triggerCount;
     @Column(name="created_at", nullable=false, updatable=false) private Instant createdAt;
     protected PriceAlertEntity() { }
     public PriceAlertEntity(String id, UserEntity user, CompanyEntity company, String comparison,
@@ -45,12 +46,17 @@ public class PriceAlertEntity {
     public String getCurrency() { return currency; }
     public boolean isEnabled() { return enabled; }
     public Instant getLastTriggeredAt() { return lastTriggeredAt; }
+    public int getTriggerCount() { return triggerCount; }
     public Instant getCreatedAt() { return createdAt; }
-    public boolean matches(BigDecimal price) {
-        int comparisonResult = price.compareTo(thresholdPrice);
-        return enabled && ("ABOVE".equals(comparison) ? comparisonResult >= 0 : comparisonResult <= 0);
+    public boolean crossed(BigDecimal previousPrice, BigDecimal currentPrice) {
+        if (!enabled) return false;
+        if ("ABOVE".equals(comparison)) {
+            return previousPrice.compareTo(thresholdPrice) <= 0 && currentPrice.compareTo(thresholdPrice) > 0;
+        }
+        return previousPrice.compareTo(thresholdPrice) >= 0 && currentPrice.compareTo(thresholdPrice) < 0;
     }
-    public void trigger(Instant now) { enabled=false; lastTriggeredAt=now; }
+    public void trigger(Instant now) { enabled=false; lastTriggeredAt=now; triggerCount++; }
+    public void reactivate() { enabled=true; }
 }
 
 

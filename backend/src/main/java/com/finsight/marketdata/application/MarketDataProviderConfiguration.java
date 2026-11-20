@@ -18,16 +18,13 @@ public class MarketDataProviderConfiguration {
 
     @Bean
     @ConditionalOnProperty(name = "finsight.market-data.provider", havingValue = "mock")
-    MarketDataProvider mockMarketDataProvider() {
+    MarketDataProvider mockMarketDataProvider(MockStockPriceService mockPrices) {
         return new MarketDataProvider() {
             @Override
             public Optional<MarketQuote> latestQuote(CompanyEntity company) {
-                int seed = Math.floorMod(company.getSymbol().hashCode(), 100_000);
-                BigDecimal mockPrice = BigDecimal.valueOf(100 + seed, 2);
-                return Optional.of(new MarketQuote(company.getId(), mockPrice, company.getCurrency(),
-                        "LOCAL_DEMO_MOCK", QuoteStatus.MOCK, Instant.now()));
+                return mockPrices.latestQuote(company.getSymbol());
             }
-            @Override public String providerName() { return "LOCAL_DEMO_MOCK"; }
+            @Override public String providerName() { return MockStockPriceService.PROVIDER; }
         };
     }
 

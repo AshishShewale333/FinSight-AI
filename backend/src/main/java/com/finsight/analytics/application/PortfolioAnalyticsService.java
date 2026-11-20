@@ -68,6 +68,8 @@ public class PortfolioAnalyticsService {
             }
         }
         BigDecimal currentValue = ZERO;
+        BigDecimal pricedInvestmentCost = ZERO;
+        int pricedPositions = 0;
         int unpriced = 0;
         Map<String, BigDecimal> valuesByAsset = new HashMap<>();
         for (PortfolioHoldingEntity holding : positions) {
@@ -78,12 +80,19 @@ public class PortfolioAnalyticsService {
             }
             BigDecimal value = quote.getPrice().multiply(holding.getQuantity()).setScale(4, RoundingMode.HALF_UP);
             currentValue = currentValue.add(value);
+            pricedInvestmentCost = pricedInvestmentCost.add(holding.getCostBasis());
+            pricedPositions++;
             valuesByAsset.put(holding.getCompany().getSymbol(), value);
         }
         currentValue = currentValue.setScale(4, RoundingMode.HALF_UP);
         boolean complete = unpriced == 0;
-        BigDecimal unrealized = complete ? currentValue.subtract(positions.stream().map(PortfolioHoldingEntity::getCostBasis)
-                .reduce(ZERO, BigDecimal::add)).setScale(4, RoundingMode.HALF_UP) : null;
+        boolean hasValuation = positions.isEmpty() || pricedPositions > 0;
+        BigDecimal unrealized = hasValuation
+                ? currentValue.subtract(pricedInvestmentCost).setScale(4, RoundingMode.HALF_UP) : null;
+        BigDecimal unrealizedPercent = pricedInvestmentCost.signum() > 0 && pricedPositions > 0
+                ? unrealized.divide(pricedInvestmentCost, 8, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100)).setScale(4, RoundingMode.HALF_UP)
+                : null;
         BigDecimal absolute = complete ? realized.add(unrealized).setScale(4, RoundingMode.HALF_UP) : null;
         BigDecimal percent = complete && totalInvestment.signum() > 0
                 ? absolute.divide(totalInvestment, 8, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).setScale(4, RoundingMode.HALF_UP)
@@ -104,8 +113,8 @@ public class PortfolioAnalyticsService {
         }
         Risk risk = riskMetrics(positions);
         return new PortfolioAnalyticsResponse(totalInvestment.setScale(4, RoundingMode.HALF_UP),
-                complete ? currentValue : null, realized.setScale(4, RoundingMode.HALF_UP), unrealized,
-                absolute, percent, xirr, cagr, allocation,
+                hasValuation ? currentValue : null, realized.setScale(4, RoundingMode.HALF_UP), unrealized,
+                unrealizedPercent, absolute, percent, xirr, cagr, allocation,
                 complete && totalValue.signum() > 0 ? hhi.setScale(8, RoundingMode.HALF_UP) : null,
                 risk.volatility, risk.drawdown, complete, unpriced,
                 "Weighted-average cost basis; quote coverage and as-of times are available on holdings. XIRR is annualized; CAGR is reported only for a single buy. Risk metrics use the available daily close series and exclude dividends and corporate actions.");

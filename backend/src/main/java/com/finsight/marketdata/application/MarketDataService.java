@@ -2,6 +2,7 @@ package com.finsight.marketdata.application;
 
 import com.finsight.common.error.ApiException;
 import com.finsight.infrastructure.outbox.OutboxService;
+import com.finsight.notification.application.NotificationService;
 import com.finsight.company.persistence.CompanyEntity;
 import com.finsight.company.persistence.CompanyRepository;
 import com.finsight.marketdata.api.QuoteResponse;
@@ -9,6 +10,8 @@ import com.finsight.marketdata.domain.MarketDataProvider;
 import com.finsight.marketdata.domain.MarketQuote;
 import com.finsight.marketdata.persistence.StockQuoteEntity;
 import com.finsight.marketdata.persistence.StockQuoteRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -20,15 +23,19 @@ import java.util.UUID;
 
 @Service
 public class MarketDataService {
+    private static final Logger log = LoggerFactory.getLogger(MarketDataService.class);
     private final CompanyRepository companies;
     private final StockQuoteRepository quotes;
     private final MarketDataProvider provider;
     private final OutboxService outbox;
     private final Clock clock;
+    private final NotificationService notifications;
 
     public MarketDataService(CompanyRepository companies, StockQuoteRepository quotes,
-                             MarketDataProvider provider, OutboxService outbox, Clock clock) {
-        this.companies = companies; this.quotes = quotes; this.provider = provider; this.outbox=outbox; this.clock = clock;
+                             MarketDataProvider provider, OutboxService outbox, Clock clock,
+                             NotificationService notifications) {
+        this.companies = companies; this.quotes = quotes; this.provider = provider;
+        this.outbox=outbox; this.clock = clock; this.notifications=notifications;
     }
 
     @Transactional
@@ -39,8 +46,13 @@ public class MarketDataService {
         MarketQuote quote = provider.latestQuote(company)
                 .orElseThrow(() -> new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "MARKET_DATA_UNAVAILABLE",
                         "No market data provider is configured; no quote is available"));
+        StockQuoteEntity previous = quotes.findFirstByCompanyIdOrderByObservedAtDesc(companyId).orElse(null);
         StockQuoteEntity saved = quotes.save(new StockQuoteEntity(UUID.randomUUID().toString(), company,
                 quote.price(), quote.currency(), quote.provider(), quote.status(), quote.observedAt()));
+        log.debug("Market quote stored companyId={} provider={} status={} observedAt={}",
+                companyId, quote.provider(), quote.status(), quote.observedAt());
+        if (previous != null) notifications.processPriceChange(companyId, previous.getPrice(), quote.price(),
+                quote.currency(), quote.status().name(), quote.observedAt());
         if (quote.status() != com.finsight.marketdata.domain.QuoteStatus.MOCK) {
             outbox.record("Company", companyId, "StockQuoteUpdated", java.util.Map.of(
                     "companyId", companyId, "price", quote.price(), "currency", quote.currency(),
@@ -63,8 +75,13 @@ public class MarketDataService {
         CompanyEntity company=companies.findById(companyId).orElse(null);
         if(company==null||!company.isActive())return;
         provider.latestQuote(company).ifPresent(quote->{
+            StockQuoteEntity previous = quotes.findFirstByCompanyIdOrderByObservedAtDesc(companyId).orElse(null);
             quotes.save(new StockQuoteEntity(UUID.randomUUID().toString(),company,quote.price(),quote.currency(),
                     quote.provider(),quote.status(),quote.observedAt()));
+            log.debug("Scheduled market quote stored companyId={} provider={} status={} observedAt={}",
+                    companyId, quote.provider(), quote.status(), quote.observedAt());
+            if (previous != null) notifications.processPriceChange(companyId, previous.getPrice(), quote.price(),
+                    quote.currency(), quote.status().name(), quote.observedAt());
             if(quote.status()!=com.finsight.marketdata.domain.QuoteStatus.MOCK){
                 outbox.record("Company",companyId,"StockQuoteUpdated",java.util.Map.of("companyId",companyId,
                         "price",quote.price(),"currency",quote.currency(),"status",quote.status().name(),

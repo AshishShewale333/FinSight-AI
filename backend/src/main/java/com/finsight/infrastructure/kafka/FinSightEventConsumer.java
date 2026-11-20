@@ -57,9 +57,9 @@ public class FinSightEventConsumer {
         JsonNode payload = event.get("payload");
         switch (eventType) {
             case "PortfolioTransactionRecorded" -> analytics.recalculate(requiredText(payload, "portfolioId"));
-            case "StockQuoteUpdated" -> notifications.processQuote(requiredText(payload, "companyId"),
-                    new BigDecimal(requiredText(payload, "price")), requiredText(payload, "currency"),
-                    requiredText(payload, "status"), Instant.parse(requiredText(payload, "observedAt")));
+            // Quote threshold crossings are evaluated atomically by MarketDataService when
+            // the quote and its previous observation are both available.
+            case "StockQuoteUpdated" -> { }
             case "FinancialNewsSummaryRequested", "FinancialNewsIngested" -> news.processSummary(requiredText(payload,"newsId"));
             case "AiResearchRequested" -> reports.process(requiredText(payload,"reportId"));
             case "NotificationRequested" -> notifications.processNotificationRequest(
@@ -67,6 +67,8 @@ public class FinSightEventConsumer {
                     requiredText(payload,"title"),requiredText(payload,"body"),requiredText(payload,"dedupeKey"));
             default -> throw new IllegalArgumentException("Unknown event type: " + eventType);
         }
+        log.debug("Kafka event processed eventId={} topic={} type={} aggregateId={}",
+                eventId, topic, eventType, aggregateId);
     }
 
     @KafkaListener(topics={"portfolio-transaction-topic-dlt","stock-price-update-topic-dlt",

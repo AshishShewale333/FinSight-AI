@@ -22,6 +22,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -43,6 +45,7 @@ import java.util.UUID;
 
 @Service
 public class FinancialDocumentService {
+    private static final Logger log = LoggerFactory.getLogger(FinancialDocumentService.class);
     private static final int MAX_CHUNK_CHARS = 1800;
     private static final int CHUNK_OVERLAP = 200;
     private static final int MAX_PAGES = 1000;
@@ -106,6 +109,7 @@ public class FinancialDocumentService {
             List<PageChunk> pageChunks = extract(target);
             if (pageChunks.isEmpty()) {
                 entity.markFailed("No readable text was extracted from this PDF", clock.instant());
+                log.warn("Document processing completed without readable text documentId={}", id);
                 return response(entity);
             }
             List<DocumentChunkEntity> savedChunks = new ArrayList<>();
@@ -131,15 +135,17 @@ public class FinancialDocumentService {
             VectorStore vectorStore = vectorStoreProvider.getIfAvailable();
             if (vectorStore == null) {
                 entity.markFailed("Embedding and vector search are not configured", clock.instant());
+                log.warn("Document indexed metadata but vector store is unavailable documentId={} chunks={}", id, savedChunks.size());
                 return response(entity);
             }
             vectorStore.add(vectors);
             savedChunks.forEach(chunk -> chunk.indexed(chunk.getId()));
             chunks.saveAll(savedChunks);
             entity.markReady(countPages(target), clock.instant());
+            log.info("Document ready documentId={} pages={} chunks={}", id, countPages(target), savedChunks.size());
         } catch (Exception exception) {
             entity.markFailed("PDF processing or vector indexing failed", clock.instant());
-            org.slf4j.LoggerFactory.getLogger(getClass()).warn("Document processing failed documentId={}", id, exception);
+            log.warn("Document processing failed documentId={}", id, exception);
         }
         return response(entity);
     }
@@ -166,11 +172,12 @@ public class FinancialDocumentService {
         VectorStore vectorStore = vectorStoreProvider.getIfAvailable();
         if (vectorStore != null && !vectorIds.isEmpty()) {
             try { vectorStore.delete(vectorIds); }
-            catch (Exception exception) { org.slf4j.LoggerFactory.getLogger(getClass()).warn("Vector cleanup failed documentId={}", id, exception); }
+            catch (Exception exception) { log.warn("Vector cleanup failed documentId={}", id, exception); }
         }
         try { Files.deleteIfExists(resolveStorageKey(entity.getStorageKey())); }
-        catch (IOException exception) { org.slf4j.LoggerFactory.getLogger(getClass()).warn("Document file cleanup failed documentId={}", id, exception); }
+        catch (IOException exception) { log.warn("Document file cleanup failed documentId={}", id, exception); }
         entity.markDeleted(clock.instant());
+        log.info("Document deleted documentId={}", id);
     }
 
     @Transactional(readOnly=true)

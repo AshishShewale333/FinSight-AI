@@ -53,4 +53,18 @@ public class StockExplorerService {
         }
         return new PageImpl<>(rows, PageRequest.of(page, size), total);
     }
+
+    @Transactional(readOnly = true)
+    public List<StockExplorerListingResponse> activeBySymbols(List<String> symbols) {
+        if (symbols == null || symbols.isEmpty()) return List.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(symbols.size(), "?"));
+        return jdbc.query("SELECT id, exchange_code, symbol, company_name, series, listing_date, paid_up_value, " +
+                        "market_lot, isin, face_value, active FROM stock_explorer_listings " +
+                        "WHERE active = TRUE AND symbol IN (" + placeholders + ") ORDER BY symbol",
+                (rs, row) -> new StockExplorerListingResponse(rs.getString("id"), rs.getString("exchange_code"),
+                        rs.getString("symbol"), rs.getString("company_name"), rs.getString("series"),
+                        rs.getObject("listing_date", java.time.LocalDate.class), rs.getBigDecimal("paid_up_value"),
+                        (Integer) rs.getObject("market_lot"), rs.getString("isin"), rs.getBigDecimal("face_value"),
+                        rs.getBoolean("active")), symbols.toArray());
+    }
 }

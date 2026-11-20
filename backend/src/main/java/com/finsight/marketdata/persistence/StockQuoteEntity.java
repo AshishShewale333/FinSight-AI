@@ -54,6 +54,14 @@ public class StockQuoteEntity {
     public String getProvider() { return provider; }
     public QuoteStatus getStatus() { return status; }
     public Instant getObservedAt() { return observedAt; }
+
+    public void update(BigDecimal price, String currency, String provider, QuoteStatus status, Instant observedAt) {
+        this.price = price;
+        this.currency = currency;
+        this.provider = provider;
+        this.status = status;
+        this.observedAt = observedAt;
+    }
 }
 
 

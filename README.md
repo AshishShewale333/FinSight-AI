@@ -34,7 +34,7 @@ flowchart LR
 
 ### Modules
 
-`authentication` and `user` manage BCrypt credentials, JWT access tokens, rotating opaque refresh tokens, and user profiles. `company` and `marketdata` provide transaction-eligible company search, quotes, and history through replaceable provider interfaces. `stockexplorer` imports a separate NSE directory into `stock_explorer_listings`; those listings do not automatically become portfolio transaction companies. `portfolio` and `transaction` enforce ownership and apply weighted-average cost basis and realized P&L rules. `analytics` calculates returns, XIRR, allocation, concentration, volatility, and drawdown in Java. `document` stores owned PDF metadata in MySQL and vectors in Qdrant. `aiassistant` provides session chat, grounded answers, and asynchronous research reports. `news` and `notification` cover provider news summaries and price/portfolio events. `common` contains API envelopes, error handling, correlation IDs, and cache/scheduling setup.
+`authentication` and `user` manage BCrypt credentials, JWT access tokens, rotating opaque refresh tokens, and user profiles. `company` and `marketdata` provide transaction-eligible company search, quotes, and history through replaceable provider interfaces. `stockexplorer` imports a separate NSE directory into `stock_explorer_listings`; orders select an active directory listing and resolve its symbol to a configured portfolio instrument. `portfolio` manages pending, market, and limit orders; executions create ledger transactions and update weighted-average cost basis and realized P&L. `analytics` calculates returns, XIRR, allocation, concentration, volatility, and drawdown in Java. `document` stores owned PDF metadata in MySQL and vectors in Qdrant. `aiassistant` provides session chat, grounded answers, and asynchronous research reports. `news` and `notification` cover provider news summaries and price/portfolio events. `common` contains API envelopes, error handling, correlation IDs, and cache/scheduling setup.
 
 ## Data model
 
@@ -60,7 +60,7 @@ Flyway owns schema evolution (`backend/src/main/resources/db/migration`). MySQL 
 
 ### Stock Explorer directory import
 
-The Stock Explorer directory is stored in its own `stock_explorer_listings` table and does not feed portfolio transaction or quote endpoints. To load NSE's downloadable equity list, download `EQUITY_L.csv` from the [NSE securities page](https://www.nseindia.com/market-data/securities-available-for-trading) yourself and place it at `backend/data/nse/EQUITY_L.csv` (or set `NSE_EQUITY_CSV_PATH` in `.env`). On backend startup, the importer validates the expected CSV columns, upserts by `(exchange_code, symbol)`, and marks omitted listings inactive. It runs at most once per India calendar day. It reads the local file only; it does not automatically fetch NSE's website.
+The Stock Explorer directory is stored in `stock_explorer_listings`. Download `EQUITY_L.csv` from the [NSE securities page](https://www.nseindia.com/market-data/securities-available-for-trading) and place it at `backend/data/nse/EQUITY_L.csv` (or set `NSE_EQUITY_CSV_PATH` in `.env`). On backend startup, the importer validates the expected CSV columns, upserts by `(exchange_code, symbol)`, and marks omitted listings inactive. It runs at most once per India calendar day and reads the local file only. The order form offers listings from this table when a WebSocket price is configured for that symbol; the backend maps the selected NSE listing to its portfolio instrument when placing the order.
 
 ## Async events
 
@@ -80,7 +80,11 @@ For local Kafka, start Docker Desktop and run `docker compose up -d kafka-init` 
 
 ### Live financial headlines
 
-Set `FINANCIAL_NEWS_PROVIDER=gdelt-rss` and `FINANCIAL_NEWS_SYNC_ENABLED=true` in the local `.env` to fetch India-focused headlines from GDELT and Google News RSS. The first sync runs shortly after backend startup; later syncs use `NEWS_SYNC_FIXED_DELAY` (one hour by default). FinSight stores headline metadata and story links, not full publisher articles. Each story links to its source, and the news screen credits the GDELT Project. Automatic AI summaries stay disabled by default, so headline ingestion does not depend on Kafka or an OpenAI key. Use `FINANCIAL_NEWS_PROVIDER=mock` for the clearly labeled practice scenarios instead.
+The default provider fetches India-focused headlines from GDELT and Google News RSS. The first sync runs shortly after backend startup; later syncs use `NEWS_SYNC_FIXED_DELAY` (one hour by default). FinSight stores headline metadata and story links, not full publisher articles. Each story links to its source, and the news screen credits the GDELT Project. Automatic AI summaries stay disabled by default, so headline ingestion does not depend on Kafka or an OpenAI key.
+
+### Price alert email
+
+Price alert emails are routed to `ashishshewale0306@gmail.com` by default. To deliver them through Gmail, set `EMAIL_NOTIFICATIONS_ENABLED=true`, `EMAIL_ALERT_RECIPIENT=ashishshewale0306@gmail.com`, `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_USERNAME` to the sending Gmail account, `GMAIL_APP_PASSWORD` to its Google app password, `SMTP_AUTH=true`, `SMTP_STARTTLS=true`, and `EMAIL_FROM` to that sending account in the local `.env`. Keep the app password private. Restart the backend after configuring mail. Emails are sent after an alert crosses its threshold and the database transaction commits.
 
 ## RAG flow
 
@@ -109,17 +113,22 @@ All application routes use `/api/v1` and return `{success,message,data,timestamp
 |---|---|
 | Authentication | `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`; `GET /users/me` |
 | Companies and market | `GET /companies?query=&page=&size=`, `GET /companies/{id}`, `GET /companies/compare?ids=`, `GET /companies/{id}/quotes/latest`, `GET /companies/{id}/prices` |
+| Live mock market | When `MARKET_DATA_PROVIDER=mock`: `GET /market/mock-stocks`, `GET /market/mock-stocks/tradable-listings`, `GET /market/mock-stocks/{symbol}/history`, WebSocket `/ws` STOMP subscriptions `/topic/stock-prices` or `/topic/stock-prices/{symbol}` |
 | Stock Explorer | `GET /stock-explorer?query=&page=&size=` (reads the separate `stock_explorer_listings` directory) |
-| Portfolios | `GET/POST /portfolios`, `GET/DELETE /portfolios/{id}`, `GET /portfolios/{id}/holdings`, `GET/POST /portfolios/{id}/transactions`, `GET /portfolios/{id}/analytics` |
+| Portfolios | `GET/POST /portfolios`, `GET/DELETE /portfolios/{id}`, `GET /portfolios/{id}/holdings`, `GET /portfolios/{id}/transactions`, `GET /portfolios/{id}/analytics`, `GET/POST /portfolios/{id}/orders`, `PUT/DELETE /portfolios/{id}/orders/{orderId}` |
 | Assistant | `POST /ai/chat`, `POST/GET /ai/chat/sessions`, `GET /ai/chat/sessions/{id}/messages`, `POST /ai/reports`, `GET /ai/reports/{id}` |
 | Documents | `POST/GET /documents`, `GET/DELETE /documents/{id}` |
-| News and notifications | `GET /news`, `GET /news/{id}`, `POST /news/{id}/summarize`, `GET /notifications`, `PATCH /notifications/{id}/read`, `GET/POST /alerts`, `DELETE /alerts/{id}` |
+| News and notifications | `GET /news`, `GET /news/{id}`, `POST /news/{id}/summarize`, `GET /notifications`, `PATCH /notifications/{id}/read`, `GET/POST /alerts`, `POST /alerts/{id}/reactivate`, `DELETE /alerts/{id}` |
 
 An importable Postman collection is at [`outputs/FinSight-AI.postman_collection.json`](outputs/FinSight-AI.postman_collection.json).
 
-The step-by-step local testing guide is at [outputs/FinSight-AI-Local-Testing-Guide.docx](outputs/FinSight-AI-Local-Testing-Guide.docx). It covers demo companies, the separate NSE directory import, transaction success/error feedback, mock and live news, and cache behavior.
+The step-by-step local testing guide is at [outputs/FinSight-AI-Local-Testing-Guide.docx](outputs/FinSight-AI-Local-Testing-Guide.docx). It covers setup, NSE listings, mock quotes, market and limit orders, editing/cancelling pending orders, portfolio P&L, alerts, news, documents, APIs, logs, and troubleshooting.
 
-The portfolio transaction form displays a success message after saving and refreshing holdings, or the API error if saving fails. If the transaction was saved but holdings could not refresh, the form says so explicitly. The market quote cache and Stock Explorer search cache use Redis with a default 20-second TTL; successful quote refreshes and NSE CSV imports evict their corresponding cached entries.
+Portfolio orders use the server's latest WebSocket-fed price. Market orders execute immediately at that price. Buy limit orders wait until the price is at or below the limit; sell limit orders wait until the price is at or above it. Executions create portfolio transaction records, so holdings and P&L update through the normal ledger path. Owners can modify or cancel pending orders; filled, rejected, and cancelled orders cannot be edited. The order page polls order and portfolio status while open. Mock quotes update one latest `stock_quotes` record per instrument, maintain bounded in-memory chart history, and broadcast over STOMP/WebSocket. Alerts evaluate quote threshold crossings including mock practice quotes, then disable after firing; owners can reactivate them. SMTP email notifications are disabled by default and require SMTP credentials. Redis caches quotes and Stock Explorer search results for 20 seconds by default; cache failures are handled so database-backed features continue.
+
+### Application logs
+
+Backend logs include the correlation ID in the level prefix. Important workflows log summaries for authentication outcomes (without credentials or tokens), quote refresh/import/news sync, order lifecycle, alert lifecycle, document processing status, outbox publishing, Kafka dead-letter events, and unexpected API errors. Routine quote ticks and successful individual Kafka events are not logged at INFO to avoid noisy logs. For local troubleshooting, inspect the IntelliJ backend console and search by `corr:<id>` or workflow identifier such as `orderId`, `alertId`, or `documentId`. Never copy `.env`, passwords, JWTs, Gmail app passwords, or private document text into logs or bug reports.
 
 ## Technology
 
@@ -150,7 +159,9 @@ Requirements: JDK 17, Maven 3.6.3+, Docker Compose v2, and Node.js 20+ with npm.
 | `OPENAI_API_KEY`, `FINSIGHT_AI_ENABLED` | Optional OpenAI-compatible assistant provider |
 | `SPRING_AI_MODEL_CHAT`, `SPRING_AI_MODEL_EMBEDDING` | Select `openai` to enable chat and embeddings; defaults disable external AI |
 | `OPENAI_CHAT_MODEL`, `OPENAI_EMBEDDING_MODEL` | Configurable model names |
-| `MARKET_DATA_PROVIDER` | Set to `mock` for explicitly labeled practice quotes; defaults to `unavailable` |
+| `MARKET_DATA_PROVIDER` | Set to `mock` for explicitly labeled, changing practice prices; defaults to `unavailable` |
+| `MOCK_STOCK_UPDATE_INTERVAL`, `MOCK_STOCK_MIN_CHANGE_PERCENT`, `MOCK_STOCK_MAX_CHANGE_PERCENT`, `MOCK_STOCK_HISTORY_LIMIT` | Mock quote tick rate, per-tick fluctuation range, and in-memory chart history length |
+| `EMAIL_NOTIFICATIONS_ENABLED`, `EMAIL_FROM`, `EMAIL_ALERT_RECIPIENT`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `GMAIL_APP_PASSWORD`, `SMTP_AUTH`, `SMTP_STARTTLS` | Optional Gmail SMTP delivery for triggered alerts; put `GMAIL_APP_PASSWORD` in IntelliJ Run Configuration environment and keep it private |
 | `FINSIGHT_MARKET_DATA_SYNC_ENABLED`, `FINANCIAL_NEWS_SYNC_ENABLED` | Optional scheduled provider ingestion |
 | `FINANCIAL_NEWS_PROVIDER`, `FINANCIAL_NEWS_AUTO_SUMMARIZE` | News source selection and optional AI summaries |
 | `STOCK_EXPLORER_IMPORT_ENABLED`, `NSE_EQUITY_CSV_PATH` | Daily local NSE CSV import and its file path |
@@ -215,4 +226,4 @@ Build a Java 17 runtime artifact from `backend/` with `mvn clean package` and se
 
 ## Calculation assumptions and limitations
 
-Transactions use weighted-average cost basis. Unrealized P&L requires a current quote; missing prices leave valuation incomplete. XIRR uses dated cash flows and is unavailable when cash-flow roots are absent or ambiguous. CAGR requires a positive beginning/end valuation over a positive period. Volatility and maximum drawdown need sufficient dated price history and use the available stored observations; short or incomplete histories are not annualized as authoritative. Financial metrics, quotes, news, and model output depend on configured providers and their freshness/coverage.
+Transactions use weighted-average cost basis. Unrealized P&L is current market value minus the remaining cost basis; its percentage uses the same priced holdings' investment cost. When some holdings have no quote, the value and P&L are partial and the API reports the unpriced count; total return remains unavailable until all positions are priced. Mock market ticks update each company's latest `stock_quotes` row and stream over WebSocket, so the Portfolio screen recalculates its display on each tick. XIRR uses dated cash flows and is unavailable when cash-flow roots are absent or ambiguous. CAGR requires a positive beginning/end valuation over a positive period. Volatility and maximum drawdown need sufficient dated price history and use the available stored observations; short or incomplete histories are not annualized as authoritative. Financial metrics, quotes, news, and model output depend on configured providers and their freshness/coverage.

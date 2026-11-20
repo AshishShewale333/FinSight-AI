@@ -1,9 +1,9 @@
 # FinSight AI — Architecture and Implementation Notes
 
 **Status:** Describes the current Java 17, MySQL, Spring Boot, and React implementation, along with known verification limits and future hardening work.
-**Updated:** 2026-11-20
+**Updated:** 2026-11-21
 
-The frontend production build passed after the transaction feedback changes. The backend compile was not verified in the Codex shell: Maven attempted to create `C:\.m2\repository`; the developer's existing Maven repository is `C:\Users\ashis\.m2\repository`. See the project README for local build commands.
+This note describes the implemented Java 17 / Spring Boot and React application. The local guide and Postman collection document current flows. Build verification is recorded at the end of this file; no claim is made that optional external-provider integrations are configured.
 
 ## 1. Goals and scope
 
@@ -75,19 +75,16 @@ Each business module follows `api → application → domain → persistence` (o
 
 ## 3. Core request and data flows
 
-### Portfolio transaction
+### Place and execute a portfolio order
 
-1. Authenticated request is validated and the caller’s portfolio ownership is checked.
-2. Portfolio service records the transaction and updates weighted-average cost basis and realized P&L in the same database transaction. Transaction-eligible companies come from `companies`; the NSE explorer directory is separate and does not automatically populate that table.
-3. An outbox row is committed in the same transaction.
-4. The API returns the accepted transaction without waiting for Kafka. The React form shows a success message after it refreshes holdings, an error if the save fails, and a separate message if the save succeeds but the holdings refresh fails.
-5. Outbox relay publishes `PortfolioTransactionRecorded`; a consumer idempotently requests analytics refresh and emits any required alert event.
+1. The authenticated request validates ownership of the caller’s portfolio and resolves an active `stock_explorer_listings` row to a configured `companies` instrument.
+2. The service checks the latest WebSocket-fed price. A market order fills immediately; a buy limit waits for price at or below its limit, and a sell limit waits for price at or above its limit.
+3. On fill, the existing transaction ledger path updates holdings, weighted-average cost basis, and realized P&L in the same database transaction. Sell orders that exceed the holding are rejected.
+4. Owners can edit or cancel pending orders. Filled, rejected, or cancelled orders are terminal. The API/UI reports pending, filled, or rejected status.
 
 ### Quote update and portfolio value
 
-1. Scheduled sync calls a configured `MarketDataProvider` adapter.
-2. Persist only provider-returned observations, including source, timestamp, currency, and status. Do not silently substitute mock data.
-3. Publish quote update via outbox. Consumers refresh impacted valuations/alerts.
+Configured providers can refresh persisted quote observations. In mock mode, the scheduler changes configured prices each tick, persists the latest quote row per symbol, updates bounded in-memory chart history, sends STOMP messages to `/topic/stock-prices` and `/topic/stock-prices/{symbol}`, processes alerts and pending orders, and evicts the quote cache. Mock values are labeled practice data. Portfolio value and unrealized P&L use available latest quotes; they expose incomplete coverage when some holdings are unpriced.
 4. Reads may use Redis for recent provider responses, with TTL and freshness exposed to clients.
 
 ### AI chat / document grounding
@@ -118,6 +115,7 @@ erDiagram
   USERS ||--o{ USER_ROLES : has
   ROLES ||--o{ USER_ROLES : grants
   USERS ||--o{ PORTFOLIOS : owns
+  PORTFOLIOS ||--o{ PORTFOLIO_ORDERS : places
   PORTFOLIOS ||--o{ PORTFOLIO_TRANSACTIONS : records
   COMPANIES ||--o{ PORTFOLIO_TRANSACTIONS : instrument
   COMPANIES ||--o{ STOCK_QUOTES : quoted
@@ -142,10 +140,11 @@ erDiagram
 |---|---|
 | `users`, `roles`, `user_roles`, `refresh_tokens` | Unique normalized email; BCrypt hash; role join; refresh tokens are stored hashed and can be revoked. Never return password hashes or token hashes. |
 | `companies` | Transaction-eligible company records with stable IDs, exchange, symbol, name, currency, and active flag. This table powers company search and portfolio transactions. |
-| `stock_explorer_listings`, `stock_explorer_import_state` | Separate NSE security directory and daily import bookkeeping. CSV rows upsert by exchange and symbol; absent listings are marked inactive. Explorer entries are not portfolio transaction companies. |
+| `stock_explorer_listings`, `stock_explorer_import_state` | Separate NSE security directory and daily import bookkeeping. CSV rows upsert by exchange and symbol; absent listings are marked inactive. Explorer entries are not portfolio instruments; the order service resolves active listings to configured instruments. |
 | `stock_quotes` | Company/listing, price, currency, observed time, provider, freshness/status; index `(company_id, observed_at desc)`. Preserve provenance; avoid overwriting a quote from a different provider without an explicit policy. |
 | `historical_stock_prices` | Company, interval/date, OHLC, volume, currency, provider; unique `(company_id, interval, price_time, provider)`; range index. |
 | `portfolios` | Owner, name, base currency, archived flag; index `(user_id, updated_at desc)`. |
+| `portfolio_orders` | Owned market/limit orders with pending, filled, cancelled, or rejected lifecycle and execution details. |
 | `portfolio_holdings` | Current portfolio/company position, quantity, weighted-average cost, and cost basis, updated transactionally with each trade. |
 | `portfolio_transactions` | Portfolio, company, side, quantity, unit price, fees, trade time, currency, idempotency key, and realized P&L. Sells are rejected when the portfolio lacks sufficient quantity. |
 | `chat_sessions`, `chat_messages` | Owner and optional company/document context; session index `(user_id, updated_at desc)`; message sequence unique within session; store prompt version/model and structured citation JSON. |
@@ -176,8 +175,10 @@ Prefix: `/api/v1`. JSON API envelope for normal responses: `{success, message, d
 | `GET/POST /portfolios` | List/create caller-owned portfolios. |
 | `GET/PATCH/DELETE /portfolios/{id}` | Read/update/archive owned portfolio. Delete should default to archive where ledger history exists. |
 | `GET /portfolios/{id}/holdings` | Current positions and quote freshness. |
-| `POST /portfolios/{id}/transactions` | Add validated transaction; supports idempotency key. |
-| `GET /portfolios/{id}/transactions` | Filtered/paginated transaction ledger. |
+| `GET/POST /portfolios/{id}/orders` | List orders or place a market/limit order using an active NSE listing ID. |
+| `PUT/DELETE /portfolios/{id}/orders/{orderId}` | Edit or cancel an owned pending order. |
+| `GET /portfolios/{id}/transactions` | Read the ledger entries created when orders fill. |
+| `GET /market/mock-stocks/tradable-listings` | When mock provider is active, list NSE rows with configured live prices. |
 | `GET /portfolios/{id}/analytics?asOf=` | Deterministic returns, P&L, risk metrics and calculation coverage. |
 | `POST /documents` | Multipart PDF upload; ownership and file limits enforced; returns processing status. |
 | `GET /documents` / `GET /documents/{id}` | Caller’s document list/status and metadata. |
@@ -273,9 +274,9 @@ Analytics are implemented in Java with `BigDecimal` for money and `double`/stabl
 | Total investment | Net external acquisition cash flow, including configured fees/taxes; distinguish gross purchase value from net cost basis. |
 | Current value | Current net quantity × latest acceptable quote. Include quote timestamp/status; if unavailable/stale, mark valuation incomplete rather than fabricating. |
 | Realized P&L | Proceeds less allocated cost basis and fees on sold quantity. Choose and document FIFO as initial cost basis policy; corporate actions need explicit support. |
-| Unrealized P&L | Current value less remaining cost basis. Exclude/flag positions with missing quotes. |
+| Unrealized P&L | Priced current value less the corresponding remaining cost basis. The response includes priced coverage and the count of unpriced holdings; percentage uses priced cost basis. |
 | Absolute / percentage return | State whether cash flows are time-weighted or money-weighted. Dashboard headline should use XIRR when cash flow dates are valid; simple return is supplementary and clearly named. |
-| XIRR | Newton iteration with bounded fallback (bisection), dated contributions negative and terminal value positive; report no result for invalid/insufficient cash flows and disclose annualization. |
+| XIRR | Bisection solver over dated BUY outflows, SELL inflows, and (only when valuation is complete) current portfolio value. Returns unavailable when positive and negative flows are missing or a root cannot be bracketed; very recent flows can make annualized values volatile. |
 | CAGR | `(ending value / beginning value)^(365.25 / elapsed days) - 1`; requires positive endpoints and ignores interim cash-flow effects, so use only for a single invested amount or labeled series. |
 | Asset allocation / concentration | Market value weights by company/sector/currency; concentration can report top-N share and Herfindahl-Hirschman Index. Unpriced assets lower coverage. |
 | Volatility | Annualized standard deviation of periodic total returns; disclose frequency, lookback, sample size, and that price history may omit dividends. |
@@ -288,37 +289,45 @@ Analytics are implemented in Java with `BigDecimal` for money and `double`/stabl
 - Validate DTOs, upload content, query lengths, sort fields, and pagination bounds. Parameterize all database access. No LLM-generated SQL.
 - Apply AI request quotas by user and IP, request/time/token bounds, concurrency limits, and provider timeouts. Redis can back distributed counters; define safe local fallback behavior.
 - CORS and security headers are environment-configured. Secrets are environment/secret-manager supplied. No API keys in frontend bundles.
-- Add correlation ID filter (accept only a validated bounded inbound ID or generate one), structured JSON logs, Micrometer metrics, Actuator health/info/prometheus with production access restrictions, and tracing hooks.
+- Correlation IDs are included in log level prefixes. Workflow logs cover authentication outcomes, imports and provider sync, order/alert lifecycle, document processing, outbox batches, dead-letter events, and unexpected API failures. Logs omit credentials, tokens, email addresses, and document contents. Add JSON formatting, tracing, and production metric dashboards as deployment hardening.
 - Define retention/deletion behavior for documents, extracted text, embeddings, chat history, and logs. Encrypt transport and storage in deployment. Avoid logging passwords, JWTs, provider keys, or source text.
 - API docs are available in local/dev profiles; production exposure is explicitly controlled.
 
 ## 10. Frontend implementation
 
-The current React + TypeScript application is composed in `frontend/src/App.tsx`, with a shared typed Axios client in `frontend/src/api.ts`. It includes authentication, overview and portfolio screens, transaction entry, company search, stock explorer, assistant, document upload, news, and notifications/alerts. Access and refresh tokens are held in `sessionStorage` for this local demo; production should move refresh tokens to an HttpOnly, Secure, SameSite cookie with an explicit CSRF policy. Backend authorization remains authoritative.
+The current React + TypeScript application is composed in `frontend/src/App.tsx`, with a shared typed Axios client in `frontend/src/api.ts`. It includes authentication, overview and portfolio screens, market/limit order entry and pending-order editing, company search, stock explorer, assistant, document upload, news, and notifications/alerts. Access and refresh tokens are held in `sessionStorage` for this local demo; production should move refresh tokens to an HttpOnly, Secure, SameSite cookie with an explicit CSRF policy. Backend authorization remains authoritative.
 
-The transaction form disables submission while saving, then reports save success or the API error; if only the follow-up holdings refresh fails, it tells the user the transaction was saved. The UI also uses empty/error states and responsive tables/charts. AI views display citations when returned by the API. Historical chart ranges and some richer loading states remain future UI work.
+The order form places market/limit orders and displays their status. Pending orders can be edited or cancelled; terminal orders cannot be changed. The UI also uses empty/error states and responsive tables/charts. AI views display citations when returned by the API. Historical chart ranges and some richer loading states remain future UI work.
 
 ## 11. Local development and delivery
 
 Docker Compose supplies MySQL 8.4, Redis, Kafka (KRaft), and Qdrant. The app runs locally via Maven and frontend via npm. `.env.example` documents names and safe placeholders only. OpenAPI/Swagger UI, Postman collection, health endpoints, and Mermaid architecture/ER/event/RAG diagrams are documented in the README.
 
-The current Maven build pins Spring Boot 3.5.16, Spring AI 1.1.8, Java 17, and maintained libraries. OpenAI chat and embeddings are disabled by default and can be enabled through configuration. MySQL remains the source of truth; Qdrant handles vector search.
+The Maven build pins Spring Boot 3.5.16, Spring AI 1.1.8, Java 17, and maintained libraries. OpenAI chat and embeddings are disabled by default and can be enabled through configuration. MySQL remains the source of truth; Qdrant handles vector search.
 
-## 12. Implementation status and next verification
+## 12. Current operational behavior and logs
+
+Market orders execute at the latest price held by the WebSocket-fed price registry. Buy limits execute at or below their limit; sell limits execute at or above. Mock mode persists one latest quote row per configured company, updates bounded in-memory chart history, broadcasts `/topic/stock-prices` and `/topic/stock-prices/{symbol}`, checks alerts, and advances pending orders. The sample mock instruments are configured through `finsight.market-data.mock.stocks` and update interval/fluctuation settings in `application.yml`; adding an instrument is a configuration change, not a service-code change.
+
+Redis is a cache, not a source of truth. The cache error handler lets database-backed requests continue during Redis outages. Quote and directory cache entries use a 20-second default TTL. Portfolio values use available latest quotes; unrealized P&L is current value minus remaining cost basis, and P&L percentage uses the cost basis of priced positions. Unpriced holdings are counted and omitted from partial totals rather than assigned invented values.
+
+Backend logs carry the correlation ID in the level prefix. INFO logs summarize state-changing user workflows and background batches; DEBUG is used for routine quote/event detail. Unexpected API failures include method, path, correlation ID, and stack trace without logging request bodies or query values. Do not log credentials, access/refresh tokens, SMTP secrets, or private document text.
+
+## 13. Implementation status and next verification
 
 The project has working code across the modules below. This is a status summary, not a claim that every production or integration criterion is complete.
 
 | Area | Current implementation | Remaining verification / hardening |
 |---|---|---|
 | Foundation and persistence | Spring Boot 3.5 / Java 17, MySQL with Flyway migrations, Docker Compose, API envelopes, OpenAPI. | Verify a clean build and fresh database migration in the local development environment. |
-| Auth, portfolio, transactions, analytics | JWT/refresh auth, ownership checks, weighted-average ledger, transaction feedback, deterministic portfolio metrics. | Expand integration tests for authorization, transaction edge cases, and ledger reconciliation. |
+| Auth, portfolio, transactions, analytics | JWT/refresh auth, ownership checks, weighted-average ledger, order status feedback, deterministic portfolio metrics. | Expand integration tests for authorization, order execution/edit/cancel edge cases, and ledger reconciliation. |
 | Companies and stock explorer | Transaction companies use `companies`; NSE directory imports into separate `stock_explorer_listings` once per India calendar day; explorer search uses Redis cache. | Verify with the user's local NSE CSV and MySQL data. |
-| Market data and cache | Provider adapters, latest/stored quote APIs, scheduled sync boundary, short-lived quote cache. | Verify provider configuration and cache behavior with Redis available. |
+| Market data and cache | Provider adapters, latest/stored quote APIs, scheduled sync boundary, persisted latest quotes, bounded mock history, STOMP broadcast, and short-lived cache. | Verify configured providers and Redis acceleration; Redis is optional and cache errors fall back to database-backed behavior. |
 | AI and documents | PDF upload/extraction, chunking, optional embeddings/Qdrant retrieval, chat and asynchronous report paths. | Enable/configure provider dependencies and verify end-to-end RAG with a real document. |
-| News and notifications | Mock news and optional GDELT/Google News RSS ingestion; price alerts and notification APIs. | Verify live sync and Kafka-dependent delivery when those services are enabled. |
-| Frontend and docs | React dashboard, transaction success/failure feedback, README, architecture notes, Postman collection. | Continue UI/API review and keep the collection synchronized with controller routes. |
+| News and notifications | GDELT/Google News RSS ingestion by default with optional mock provider; price alerts and notification APIs. | Verify live sync and Kafka-dependent delivery when those services are enabled. |
+| Frontend and docs | React dashboard, order lifecycle and pending-order editing, README, architecture notes, Postman collection. | Continue UI/API review and keep the collection synchronized with controller routes. |
 
-## 13. Decisions applied in the implementation
+## 14. Decisions applied in the implementation
 
 These decisions were applied in the implementation:
 1. **Repository layout:** one Maven Spring Boot application with package/module boundaries, plus `frontend/`.

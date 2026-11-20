@@ -12,10 +12,13 @@ import com.finsight.notification.persistence.PriceAlertEntity;
 import com.finsight.notification.persistence.PriceAlertRepository;
 import com.finsight.user.persistence.UserEntity;
 import com.finsight.user.persistence.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -26,15 +29,19 @@ import java.util.UUID;
 
 @Service
 public class NotificationService {
+    private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
     private final NotificationRepository notifications;
     private final PriceAlertRepository alerts;
     private final UserRepository users;
     private final CompanyRepository companies;
     private final Clock clock;
+    private final ApplicationEventPublisher events;
 
     public NotificationService(NotificationRepository notifications, PriceAlertRepository alerts,
-                               UserRepository users, CompanyRepository companies, Clock clock) {
-        this.notifications=notifications; this.alerts=alerts; this.users=users; this.companies=companies; this.clock=clock;
+                               UserRepository users, CompanyRepository companies, Clock clock,
+                               ApplicationEventPublisher events) {
+        this.notifications=notifications; this.alerts=alerts; this.users=users; this.companies=companies;
+        this.clock=clock; this.events=events;
     }
 
     @Transactional(readOnly=true)
@@ -63,6 +70,8 @@ public class NotificationService {
                 .orElseThrow(() -> notFound("COMPANY_NOT_FOUND", "Company was not found"));
         PriceAlertEntity alert = alerts.save(new PriceAlertEntity(UUID.randomUUID().toString(), user, company,
                 request.comparison(), request.thresholdPrice(), company.getCurrency(), clock.instant()));
+        log.info("Price alert created alertId={} symbol={} comparison={}", alert.getId(),
+                company.getSymbol(), request.comparison());
         return alertResponse(alert);
     }
 
@@ -71,21 +80,37 @@ public class NotificationService {
         PriceAlertEntity alert = alerts.findByIdAndUserId(alertId, userId)
                 .orElseThrow(() -> notFound("PRICE_ALERT_NOT_FOUND", "Price alert was not found"));
         alerts.delete(alert);
+        log.info("Price alert deleted alertId={} symbol={}", alert.getId(), alert.getCompany().getSymbol());
     }
 
     @Transactional
-    public void processQuote(String companyId, BigDecimal price, String currency,
-                             String quoteStatus, Instant observedAt) {
-        if ("MOCK".equals(quoteStatus)) return;
-        for (PriceAlertEntity alert : alerts.findByCompanyIdAndEnabledTrue(companyId)) {
-            if (alert.getCurrency().equals(currency) && alert.matches(price)) {
-                alert.trigger(observedAt);
-                String body = alert.getCompany().getSymbol() + " reached " + price + " " + currency
-                        + " (" + alert.getComparison().toLowerCase() + " " + alert.getThresholdPrice() + ")";
-                notifications.save(new NotificationEntity(UUID.randomUUID().toString(), alert.getUser(),
-                        "PRICE_ALERT", "Price alert for " + alert.getCompany().getSymbol(), body,
-                        "price-alert:" + alert.getId() + ":" + observedAt.toEpochMilli(), observedAt));
-            }
+    public PriceAlertResponse reactivateAlert(String userId, String alertId) {
+        PriceAlertEntity alert = alerts.findByIdAndUserId(alertId, userId)
+                .orElseThrow(() -> notFound("PRICE_ALERT_NOT_FOUND", "Price alert was not found"));
+        alert.reactivate();
+        log.info("Price alert reactivated alertId={} symbol={}", alert.getId(), alert.getCompany().getSymbol());
+        return alertResponse(alert);
+    }
+
+    @Transactional
+    public void processPriceChange(String companyId, BigDecimal previousPrice, BigDecimal currentPrice,
+                                   String currency, String quoteStatus, Instant observedAt) {
+        if ("MOCK".equals(quoteStatus) && previousPrice.compareTo(currentPrice) == 0) return;
+        for (PriceAlertEntity alert : alerts.findActiveForCompanyForUpdate(companyId)) {
+            if (!alert.getCurrency().equals(currency)
+                    || !alert.crossed(previousPrice, currentPrice)) continue;
+            alert.trigger(observedAt);
+            log.info("Price alert triggered alertId={} triggerCount={} symbol={} quoteStatus={}",
+                    alert.getId(), alert.getTriggerCount(), alert.getCompany().getSymbol(), quoteStatus);
+            String body = alert.getCompany().getSymbol() + " crossed " + alert.getComparison().toLowerCase()
+                    + " " + alert.getThresholdPrice() + " " + currency + "; observed price " + currentPrice;
+            String dedupeKey = "price-alert:" + alert.getId() + ":" + alert.getTriggerCount();
+            notifications.save(new NotificationEntity(UUID.randomUUID().toString(), alert.getUser(),
+                    "PRICE_ALERT", "Price alert for " + alert.getCompany().getSymbol(), body,
+                    dedupeKey, observedAt));
+            events.publishEvent(new PriceAlertTriggeredEvent(alert.getId(), alert.getTriggerCount(),
+                    alert.getUser().getEmail(), alert.getCompany().getSymbol(), alert.getComparison(),
+                    alert.getThresholdPrice(), currentPrice, currency, observedAt));
         }
     }
 

@@ -33,6 +33,17 @@ export async function request<T>(promise: Promise<{ data: Envelope<T> }>): Promi
   return (await promise).data.data
 }
 export function errorMessage(error: unknown): string {
-  if (axios.isAxiosError(error)) return error.response?.data?.message ?? error.message
+  if (axios.isAxiosError(error)) {
+    const body = error.response?.data
+    const message = typeof body?.message === 'string' ? body.message : error.message
+    const fieldErrors = body?.fieldErrors
+    if (fieldErrors && typeof fieldErrors === 'object') {
+      const details = Object.entries(fieldErrors as Record<string, unknown>)
+        .filter(([, detail]) => typeof detail === 'string')
+        .map(([field, detail]) => `${field}: ${detail}`)
+      if (details.length) return `${message} (${details.join('; ')})`
+    }
+    return message
+  }
   return error instanceof Error ? error.message : 'Request failed'
 }

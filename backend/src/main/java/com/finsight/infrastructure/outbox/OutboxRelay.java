@@ -28,11 +28,13 @@ public class OutboxRelay {
         List<PendingEvent> events = jdbc.query("SELECT id, aggregate_id, event_type, payload FROM outbox_events WHERE published_at IS NULL ORDER BY created_at LIMIT 50 FOR UPDATE SKIP LOCKED",
                 (rs, row) -> new PendingEvent(rs.getString("id"), rs.getString("aggregate_id"),
                         rs.getString("event_type"), rs.getString("payload")));
+        int published = 0;
         for (PendingEvent event : events) {
             String topic = topicFor(event.eventType());
             try {
                 kafka.send(topic, event.aggregateId(), event.payload()).get(5, TimeUnit.SECONDS);
                 jdbc.update("UPDATE outbox_events SET published_at = CURRENT_TIMESTAMP(6), attempts = attempts + 1 WHERE id = ?", event.id());
+                published++;
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
                 break;
@@ -42,6 +44,7 @@ public class OutboxRelay {
                 break;
             }
         }
+        if (published > 0) log.info("Outbox batch published count={}", published);
     }
 
     private String topicFor(String eventType) {
