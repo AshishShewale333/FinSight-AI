@@ -1,0 +1,20 @@
+CREATE TABLE company_financial_metrics (
+    id CHAR(36) NOT NULL,
+    company_id CHAR(36) NOT NULL,
+    fiscal_period VARCHAR(32) NOT NULL,
+    period_end DATE NOT NULL,
+    revenue DECIMAL(24, 2) NULL,
+    operating_profit DECIMAL(24, 2) NULL,
+    net_profit DECIMAL(24, 2) NULL,
+    total_debt DECIMAL(24, 2) NULL,
+    total_equity DECIMAL(24, 2) NULL,
+    total_assets DECIMAL(24, 2) NULL,
+    currency CHAR(3) NOT NULL,
+    source VARCHAR(100) NOT NULL,
+    observed_at TIMESTAMP(6) NOT NULL,
+    created_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (id),
+    CONSTRAINT fk_financial_metrics_company FOREIGN KEY (company_id) REFERENCES companies (id) ON DELETE CASCADE,
+    CONSTRAINT uq_company_period_source UNIQUE (company_id, fiscal_period, source),
+    KEY ix_company_metrics_period (company_id, period_end)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

@@ -1,0 +1,125 @@
+spring:
+  config:
+    import:
+      - optional:file:./.env[.properties]
+      - optional:file:../.env[.properties]
+  application:
+    name: finsight-ai
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/finsight?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:test@123}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      connection-timeout: 30000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    clean-disabled: true
+  jackson:
+    time-zone: UTC
+  cache:
+    type: redis
+    redis:
+      time-to-live: ${CACHE_TTL:PT20S}
+      cache-null-values: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+    consumer:
+      group-id: finsight-ai
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
+  ai:
+    model:
+      chat: ${SPRING_AI_MODEL_CHAT:none}
+      embedding: ${SPRING_AI_MODEL_EMBEDDING:none}
+      image: ${SPRING_AI_MODEL_IMAGE:none}
+      moderation: ${SPRING_AI_MODEL_MODERATION:none}
+      audio:
+        speech: ${SPRING_AI_MODEL_AUDIO_SPEECH:none}
+        transcription: ${SPRING_AI_MODEL_AUDIO_TRANSCRIPTION:none}
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      chat:
+        options:
+          model: ${OPENAI_CHAT_MODEL:gpt-4o-mini}
+      embedding:
+        options:
+          model: ${OPENAI_EMBEDDING_MODEL:text-embedding-3-small}
+    vectorstore:
+      type: ${SPRING_AI_VECTORSTORE_TYPE:none}
+      qdrant:
+        host: ${QDRANT_HOST:localhost}
+        port: ${QDRANT_GRPC_PORT:6334}
+        collection-name: ${QDRANT_COLLECTION:finsight_documents}
+        initialize-schema: true
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+  forward-headers-strategy: framework
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+springdoc:
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:true}
+  swagger-ui:
+    enabled: ${API_DOCS_ENABLED:true}
+    path: /swagger-ui.html
+finsight:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174}
+  security:
+    jwt-secret: ${JWT_SECRET}
+    jwt-issuer: ${JWT_ISSUER:https://finsight-ai.local}
+    access-token-ttl: ${JWT_ACCESS_TTL:PT15M}
+    refresh-token-ttl: ${JWT_REFRESH_TTL:P30D}
+  market-data:
+    provider: ${MARKET_DATA_PROVIDER:unavailable}
+  news:
+    provider: ${FINANCIAL_NEWS_PROVIDER:mock}
+    sync-enabled: ${FINANCIAL_NEWS_SYNC_ENABLED:false}
+    auto-summarize: ${FINANCIAL_NEWS_AUTO_SUMMARIZE:false}
+  stock-explorer:
+    import-enabled: ${STOCK_EXPLORER_IMPORT_ENABLED:true}
+    csv-path: ${NSE_EQUITY_CSV_PATH:./data/nse/EQUITY_L.csv}
+  documents:
+    storage-dir: ${DOCUMENT_STORAGE_DIR:./data/documents}
+    max-file-size: ${DOCUMENT_MAX_FILE_SIZE:20MB}
+  ai:
+    enabled: ${FINSIGHT_AI_ENABLED:false}
+    max-message-length: ${AI_MAX_MESSAGE_LENGTH:4000}
+    retrieval-top-k: ${AI_RETRIEVAL_TOP_K:5}
+logging:
+  pattern:
+    level: "%5p [corr:%X{correlationId}]"
+
