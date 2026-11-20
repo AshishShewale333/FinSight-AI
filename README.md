@@ -34,7 +34,7 @@ flowchart LR
 
 ### Modules
 
-`authentication` and `user` manage BCrypt credentials, JWT access tokens, rotating opaque refresh tokens, and user profiles. `company` and `marketdata` provide company search, quotes, and history through replaceable provider interfaces. `portfolio` and `transaction` enforce ownership and apply weighted-average cost basis and realized P&L rules. `analytics` calculates returns, XIRR, allocation, concentration, volatility, and drawdown in Java. `document` stores owned PDF metadata in MySQL and vectors in Qdrant. `aiassistant` provides session chat, grounded answers, and asynchronous research reports. `news` and `notification` cover provider news summaries and price/portfolio events. `common` contains API envelopes, error handling, correlation IDs, and cache/scheduling setup.
+`authentication` and `user` manage BCrypt credentials, JWT access tokens, rotating opaque refresh tokens, and user profiles. `company` and `marketdata` provide transaction-eligible company search, quotes, and history through replaceable provider interfaces. `stockexplorer` imports a separate NSE directory into `stock_explorer_listings`; those listings do not automatically become portfolio transaction companies. `portfolio` and `transaction` enforce ownership and apply weighted-average cost basis and realized P&L rules. `analytics` calculates returns, XIRR, allocation, concentration, volatility, and drawdown in Java. `document` stores owned PDF metadata in MySQL and vectors in Qdrant. `aiassistant` provides session chat, grounded answers, and asynchronous research reports. `news` and `notification` cover provider news summaries and price/portfolio events. `common` contains API envelopes, error handling, correlation IDs, and cache/scheduling setup.
 
 ## Data model
 
@@ -109,12 +109,15 @@ All application routes use `/api/v1` and return `{success,message,data,timestamp
 |---|---|
 | Authentication | `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`; `GET /users/me` |
 | Companies and market | `GET /companies?query=&page=&size=`, `GET /companies/{id}`, `GET /companies/compare?ids=`, `GET /companies/{id}/quotes/latest`, `GET /companies/{id}/prices` |
+| Stock Explorer | `GET /stock-explorer?query=&page=&size=` (reads the separate `stock_explorer_listings` directory) |
 | Portfolios | `GET/POST /portfolios`, `GET/DELETE /portfolios/{id}`, `GET /portfolios/{id}/holdings`, `GET/POST /portfolios/{id}/transactions`, `GET /portfolios/{id}/analytics` |
 | Assistant | `POST /ai/chat`, `POST/GET /ai/chat/sessions`, `GET /ai/chat/sessions/{id}/messages`, `POST /ai/reports`, `GET /ai/reports/{id}` |
 | Documents | `POST/GET /documents`, `GET/DELETE /documents/{id}` |
 | News and notifications | `GET /news`, `GET /news/{id}`, `POST /news/{id}/summarize`, `GET /notifications`, `PATCH /notifications/{id}/read`, `GET/POST /alerts`, `DELETE /alerts/{id}` |
 
 An importable Postman collection is at [`outputs/FinSight-AI.postman_collection.json`](outputs/FinSight-AI.postman_collection.json).
+
+The portfolio transaction form displays a success message after saving and refreshing holdings, or the API error if saving fails. If the transaction was saved but holdings could not refresh, the form says so explicitly. The market quote cache and Stock Explorer search cache use Redis with a default 20-second TTL; successful quote refreshes and NSE CSV imports evict their corresponding cached entries.
 
 ## Technology
 
@@ -141,13 +144,16 @@ Requirements: JDK 17, Maven 3.6.3+, Docker Compose v2, and Node.js 20+ with npm.
 | `SERVER_PORT`, `DB_POOL_SIZE` | API port and connection pool |
 | `REDIS_HOST`, `REDIS_PORT` | Redis service |
 | `KAFKA_BOOTSTRAP_SERVERS` | Kafka broker |
-| `QDRANT_HOST`, `QDRANT_PORT` | Qdrant endpoint |
+| `QDRANT_HOST`, `QDRANT_GRPC_PORT`, `QDRANT_COLLECTION` | Qdrant endpoint and collection |
 | `OPENAI_API_KEY`, `FINSIGHT_AI_ENABLED` | Optional OpenAI-compatible assistant provider |
 | `SPRING_AI_MODEL_CHAT`, `SPRING_AI_MODEL_EMBEDDING` | Select `openai` to enable chat and embeddings; defaults disable external AI |
 | `OPENAI_CHAT_MODEL`, `OPENAI_EMBEDDING_MODEL` | Configurable model names |
-| `FINSIGHT_MARKET_MOCK_ENABLED` | Explicitly labeled local mock quotes; off by default |
-| `FINSIGHT_MARKET_DATA_SYNC_ENABLED`, `FINSIGHT_NEWS_SYNC_ENABLED` | Optional scheduled provider ingestion |
-| `FINSIGHT_DOCUMENT_STORAGE` | Local document storage directory |
+| `MARKET_DATA_PROVIDER` | Set to `mock` for explicitly labeled practice quotes; defaults to `unavailable` |
+| `FINSIGHT_MARKET_DATA_SYNC_ENABLED`, `FINANCIAL_NEWS_SYNC_ENABLED` | Optional scheduled provider ingestion |
+| `FINANCIAL_NEWS_PROVIDER`, `FINANCIAL_NEWS_AUTO_SUMMARIZE` | News source selection and optional AI summaries |
+| `STOCK_EXPLORER_IMPORT_ENABLED`, `NSE_EQUITY_CSV_PATH` | Daily local NSE CSV import and its file path |
+| `DOCUMENT_STORAGE_DIR`, `DOCUMENT_MAX_FILE_SIZE` | Local document storage directory and upload limit |
+| `CACHE_TTL` | Redis cache lifetime; defaults to `PT20S` |
 
 Keep real credentials in an environment/secret manager and out of source control. The browser demo stores short-lived tokens in `sessionStorage`; production should move refresh tokens to an HttpOnly, Secure, SameSite cookie with an explicit CSRF policy.
 

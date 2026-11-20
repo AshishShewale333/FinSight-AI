@@ -2,29 +2,320 @@
   "info": {
     "_postman_id": "8a5d0083-5888-4bc3-8f44-18c7fbafc2c1",
     "name": "FinSight AI API",
-    "description": "Local API collection. Register or log in to set accessToken, then call protected routes.",
+    "description": "Local API collection. Register or log in to set accessToken, create a portfolio, and search companies. Copy a transaction-eligible companies.id into the collection variable companyId before recording a trade. Stock Explorer rows are a separate directory and are not transaction-eligible.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:8080/api/v1" },
-    { "key": "accessToken", "value": "" },
-    { "key": "refreshToken", "value": "" },
-    { "key": "portfolioId", "value": "" },
-    { "key": "companyId", "value": "" },
-    { "key": "documentId", "value": "" },
-    { "key": "sessionId", "value": "" }
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080/api/v1"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "portfolioId",
+      "value": ""
+    },
+    {
+      "key": "companyId",
+      "value": ""
+    },
+    {
+      "key": "documentId",
+      "value": ""
+    },
+    {
+      "key": "sessionId",
+      "value": ""
+    }
   ],
   "item": [
-    { "name": "Health", "request": { "method": "GET", "url": "http://localhost:8080/actuator/health" } },
-    { "name": "Register", "event": [{ "listen": "test", "script": { "exec": ["const body = pm.response.json().data;", "if (body) { pm.collectionVariables.set('accessToken', body.accessToken); pm.collectionVariables.set('refreshToken', body.refreshToken); }"], "type": "text/javascript" } }], "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"person@example.com\",\n  \"password\": \"a-long-unique-passphrase\",\n  \"displayName\": \"Person\"\n}" }, "url": "{{baseUrl}}/auth/register" } },
-    { "name": "Login", "event": [{ "listen": "test", "script": { "exec": ["const body = pm.response.json().data;", "if (body) { pm.collectionVariables.set('accessToken', body.accessToken); pm.collectionVariables.set('refreshToken', body.refreshToken); }"], "type": "text/javascript" } }], "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"email\": \"person@example.com\",\n  \"password\": \"a-long-unique-passphrase\"\n}" }, "url": "{{baseUrl}}/auth/login" } },
-    { "name": "Refresh token", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}" }, "url": "{{baseUrl}}/auth/refresh" } },
-    { "name": "Current user", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/users/me" } },
-    { "name": "Search companies", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/companies?query=Reliance&page=0&size=25" } },
-    { "name": "Create portfolio", "event": [{ "listen": "test", "script": { "exec": ["const body = pm.response.json().data;", "if (body) pm.collectionVariables.set('portfolioId', body.id);"], "type": "text/javascript" } }], "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Long term\",\n  \"baseCurrency\": \"INR\"\n}" }, "url": "{{baseUrl}}/portfolios" } },
-    { "name": "Portfolio analytics", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/portfolios/{{portfolioId}}/analytics" } },
-    { "name": "Create chat session", "event": [{ "listen": "test", "script": { "exec": ["const body = pm.response.json().data;", "if (body) pm.collectionVariables.set('sessionId', body.id);"], "type": "text/javascript" } }], "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"title\": \"Annual report questions\",\n  \"documentId\": \"{{documentId}}\"\n}" }, "url": "{{baseUrl}}/ai/chat/sessions" } },
-    { "name": "Ask assistant", "request": { "method": "POST", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"sessionId\": \"{{sessionId}}\",\n  \"question\": \"What are the major risks mentioned in the report?\"\n}" }, "url": "{{baseUrl}}/ai/chat" } },
-    { "name": "List notifications", "request": { "method": "GET", "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }], "url": "{{baseUrl}}/notifications?page=0&size=20" } }
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": "http://localhost:8080/actuator/health"
+      }
+    },
+    {
+      "name": "Register",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json().data;",
+              "if (body) { pm.collectionVariables.set('accessToken', body.accessToken); pm.collectionVariables.set('refreshToken', body.refreshToken); }"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"person@example.com\",\n  \"password\": \"a-long-unique-passphrase\",\n  \"displayName\": \"Person\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/register"
+      }
+    },
+    {
+      "name": "Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json().data;",
+              "if (body) { pm.collectionVariables.set('accessToken', body.accessToken); pm.collectionVariables.set('refreshToken', body.refreshToken); }"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"person@example.com\",\n  \"password\": \"a-long-unique-passphrase\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/login"
+      }
+    },
+    {
+      "name": "Refresh token",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+        },
+        "url": "{{baseUrl}}/auth/refresh"
+      }
+    },
+    {
+      "name": "Current user",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/users/me"
+      }
+    },
+    {
+      "name": "Search companies",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/companies?query=Reliance&page=0&size=25"
+      }
+    },
+    {
+      "name": "Create portfolio",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json().data;",
+              "if (body) pm.collectionVariables.set('portfolioId', body.id);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Long term\",\n  \"baseCurrency\": \"INR\"\n}"
+        },
+        "url": "{{baseUrl}}/portfolios"
+      }
+    },
+    {
+      "name": "Portfolio analytics",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/portfolios/{{portfolioId}}/analytics"
+      }
+    },
+    {
+      "name": "Create chat session",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json().data;",
+              "if (body) pm.collectionVariables.set('sessionId', body.id);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Annual report questions\",\n  \"documentId\": \"{{documentId}}\"\n}"
+        },
+        "url": "{{baseUrl}}/ai/chat/sessions"
+      }
+    },
+    {
+      "name": "Ask assistant",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sessionId\": \"{{sessionId}}\",\n  \"question\": \"What are the major risks mentioned in the report?\"\n}"
+        },
+        "url": "{{baseUrl}}/ai/chat"
+      }
+    },
+    {
+      "name": "List notifications",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{accessToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/notifications?page=0&size=20"
+      }
+    },
+    {
+      "request": {
+        "url": "{{baseUrl}}/stock-explorer?query=Reliance&page=0&size=100",
+        "method": "GET",
+        "header": [
+          {
+            "value": "Bearer {{accessToken}}",
+            "key": "Authorization"
+          }
+        ]
+      },
+      "name": "Stock Explorer directory"
+    },
+    {
+      "request": {
+        "url": "{{baseUrl}}/news?page=0&size=20",
+        "method": "GET",
+        "header": [
+          {
+            "value": "Bearer {{accessToken}}",
+            "key": "Authorization"
+          }
+        ]
+      },
+      "name": "Market news"
+    },
+    {
+      "request": {
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"companyId\": \"{{companyId}}\",\n  \"type\": \"BUY\",\n  \"quantity\": 1,\n  \"unitPrice\": 100,\n  \"fees\": 0,\n  \"tradedAt\": \"2026-11-20T08:20:00.000Z\",\n  \"currency\": \"INR\"\n}"
+        },
+        "url": "{{baseUrl}}/portfolios/{{portfolioId}}/transactions",
+        "method": "POST",
+        "header": [
+          {
+            "value": "Bearer {{accessToken}}",
+            "key": "Authorization"
+          },
+          {
+            "value": "application/json",
+            "key": "Content-Type"
+          }
+        ]
+      },
+      "name": "Record transaction"
+    },
+    {
+      "request": {
+        "url": "{{baseUrl}}/portfolios/{{portfolioId}}/holdings",
+        "method": "GET",
+        "header": [
+          {
+            "value": "Bearer {{accessToken}}",
+            "key": "Authorization"
+          }
+        ]
+      },
+      "name": "Portfolio holdings"
+    }
   ]
 }
