@@ -117,6 +117,8 @@ All application routes use `/api/v1` and return `{success,message,data,timestamp
 
 An importable Postman collection is at [`outputs/FinSight-AI.postman_collection.json`](outputs/FinSight-AI.postman_collection.json).
 
+The step-by-step local testing guide is at [outputs/FinSight-AI-Local-Testing-Guide.docx](outputs/FinSight-AI-Local-Testing-Guide.docx). It covers demo companies, the separate NSE directory import, transaction success/error feedback, mock and live news, and cache behavior.
+
 The portfolio transaction form displays a success message after saving and refreshing holdings, or the API error if saving fails. If the transaction was saved but holdings could not refresh, the form says so explicitly. The market quote cache and Stock Explorer search cache use Redis with a default 20-second TTL; successful quote refreshes and NSE CSV imports evict their corresponding cached entries.
 
 ## Technology
