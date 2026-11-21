@@ -14,3 +14,6 @@ frontend/dist/
 ~$*.docx
 ~$*.xlsx
 ~$*.pptx
+
+# Locally generated interview guide
+/outputs/FinSight-AI-Interview-Preparation-Guide.docx

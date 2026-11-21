@@ -222,7 +222,15 @@ The project includes unit tests for JWT token issuance/validation and financial 
 
 ## Deployment
 
-Build a Java 17 runtime artifact from `backend/` with `mvn clean package` and serve `frontend/dist` from a static web server or CDN. Deploy MySQL, Redis, Kafka, and Qdrant as managed services or secured private infrastructure. Provide secrets through the deployment secret manager, terminate TLS at the ingress, restrict actuator exposure, configure backups and retention, and set provider sync toggles deliberately. Compose is for local development, not production deployment.
+The backend image is defined by `backend/Dockerfile`. Build it from the repository root with:
+
+```bash
+docker build -f backend/Dockerfile -t finsight-ai-backend backend
+```
+
+The container uses Java 17, runs as an unprivileged user, and listens on `PORT` when the host provides it. With `PORT` unset, the existing `SERVER_PORT` setting (default `8080`) remains in effect. The frontend is a Vite static site and can be published from `frontend/dist`; it does not need a Dockerfile when deployed as a Render Static Site. Set `VITE_API_BASE_URL` at build time to the backend URL ending in `/api/v1`, and set the backend `CORS_ALLOWED_ORIGINS` to the exact frontend origin.
+
+Deploy MySQL, Redis, Kafka, and Qdrant as managed services or secured private infrastructure. Render's MySQL option is self-managed and requires a persistent disk and separate database backups. Redis is optional for caching; Kafka is needed for outbox consumers; Qdrant and OpenAI configuration are only needed for document-grounded AI. Local document files and the NSE CSV need persistent or external storage/data provisioning in production. Provide secrets through the deployment secret manager, terminate TLS at the ingress, restrict actuator/API-doc exposure, and set provider sync toggles deliberately. Compose is for local development, not production deployment.
 
 ## Calculation assumptions and limitations
 

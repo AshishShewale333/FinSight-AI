@@ -84,7 +84,7 @@ spring:
         collection-name: ${QDRANT_COLLECTION:finsight_documents}
         initialize-schema: true
 server:
-  port: ${SERVER_PORT:8080}
+  port: ${PORT:${SERVER_PORT:8080}}
   shutdown: graceful
   forward-headers-strategy: framework
 management:
